@@ -18,7 +18,7 @@ class SensorModel:
     References: Thrun, Sebastian, Wolfram Burgard, and Dieter Fox. Probabilistic robotics. MIT press, 2005.
     [Chapter 6.3]
     """
-    def __init__(self, occupancy_map):
+    def __init__(self, map_obj):
         """
         TODO : Tune Sensor Model parameters here
         The original numbers are for reference but HAVE TO be tuned.
@@ -40,6 +40,35 @@ class SensorModel:
         # Used in sampling angles in ray casting
         self._subsampling = 2
 
+        self.occupancy_map = map_obj.get_occupancy_map()
+        self.map_size_x = map_obj.get_map_size_x()
+        self.map_size_y = map_obj.get_map_size_y()
+        self.map_resolution = self.map_size_x / self.occupancy_map.shape[0]
+
+    def ray_casting(self, x0, y0, theta_beam):
+        step_size = self.map_resolution/2
+
+        d = step_size
+
+        while d < self._max_range:
+
+            x = x0 + d * np.cos(theta_beam)
+            y = y0 + d * np.sin(theta_beam)
+
+            x_grid = int(np.floor(x/self.map_resolution))
+            y_grid = int(np.floor(y/self.map_resolution))
+
+            if(x_grid > self.occupancy_map.shape[1] or x_grid < 0 or \
+               y_grid > self.occupancy_map.shape[0] or y_grid <0):
+                return self._max_range
+            
+            if(self.occupancy_map[y_grid, x_grid] > self._min_probability):
+                return d
+            
+            d += step_size
+
+        return self._max_range
+
     def beam_range_finder_model(self, z_t1_arr, x_t1):
         """
         param[in] z_t1_arr : laser range readings [array of 180 values] at time t
@@ -49,5 +78,10 @@ class SensorModel:
         """
         TODO : Add your code here
         """
+        q=1
+        for k in range(0, 180, self._subsampling):
+            z_t_k_star = self.ray_casting()
+
+
         prob_zt1 = 1.0
         return prob_zt1

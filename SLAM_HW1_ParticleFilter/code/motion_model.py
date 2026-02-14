@@ -19,8 +19,8 @@ class MotionModel:
         TODO : Tune Motion Model parameters here
         The original numbers are for reference but HAVE TO be tuned.
         """
-        self._alpha1 = 0.01
-        self._alpha2 = 0.01
+        self._alpha1 = 0.0001
+        self._alpha2 = 0.0001
         self._alpha3 = 0.01
         self._alpha4 = 0.01
 
@@ -35,4 +35,35 @@ class MotionModel:
         """
         TODO : Add your code here
         """
-        return np.random.rand(3)
+        # Odometry Motion Model (Table 5.6 in Probabilistic Robotics)
+
+        # Extract odometry readings at t-1 and t
+        x_bar0, y_bar0, theta_bar0 = u_t0[0], u_t0[1], u_t0[2]
+        x_bar1, y_bar1, theta_bar1 = u_t1[0], u_t1[1], u_t1[2]
+
+        # Compute relative motion from odometry
+        delta_trans = math.sqrt((x_bar1 - x_bar0)**2 + (y_bar1 - y_bar0)**2)
+
+        # Handle near-stationary case to avoid atan2 instability
+        if delta_trans < 0.01:
+            delta_rot1 = 0.0
+        else:
+            delta_rot1 = math.atan2(y_bar1 - y_bar0, x_bar1 - x_bar0) - theta_bar0
+        delta_rot2 = theta_bar1 - theta_bar0 - delta_rot1
+
+        # Add noise (sample from zero-mean Gaussian with variance proportional to motion)
+        delta_rot1_var = self._alpha1 * delta_rot1**2 + self._alpha2 * delta_trans**2
+        delta_trans_var = self._alpha3 * delta_trans**2 + self._alpha4 * (delta_rot1**2 + delta_rot2**2)
+        delta_rot2_var = self._alpha1 * delta_rot2**2 + self._alpha2 * delta_trans**2
+
+        delta_rot1_hat = delta_rot1 - np.random.normal(0, math.sqrt(max(delta_rot1_var, 1e-10)))
+        delta_trans_hat = delta_trans - np.random.normal(0, math.sqrt(max(delta_trans_var, 1e-10)))
+        delta_rot2_hat = delta_rot2 - np.random.normal(0, math.sqrt(max(delta_rot2_var, 1e-10)))
+
+        # Apply noisy motion to particle state
+        x, y, theta = x_t0[0], x_t0[1], x_t0[2]
+        x_new = x + delta_trans_hat * math.cos(theta + delta_rot1_hat)
+        y_new = y + delta_trans_hat * math.sin(theta + delta_rot1_hat)
+        theta_new = theta + delta_rot1_hat + delta_rot2_hat
+
+        return np.array([x_new, y_new, theta_new])

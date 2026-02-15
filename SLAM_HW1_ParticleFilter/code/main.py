@@ -79,7 +79,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--path_to_map', default='../data/map/wean.dat')
     parser.add_argument('--path_to_log', default='../data/log/robotdata1.log')
-    parser.add_argument('--output', default='results')
+    parser.add_argument('--output', default='../results')
     parser.add_argument('--num_particles', default=500, type=int)
     parser.add_argument('--visualize', action='store_true')
     args = parser.parse_args()
@@ -142,19 +142,43 @@ if __name__ == '__main__':
 
         # Note: this formulation is intuitive but not vectorized; looping in python is SLOW.
         # Vectorized version will receive a bonus. i.e., the functions take all particles as the input and process them in a vector.
+        
+        # TIMING_START: motion_model_total
+        motion_model_total_time = 0.0
+        sensor_model_total_time = 0.0
+        ray_casting_total_time = 0.0
+        # TIMING_END: motion_model_total
+        
         for m in range(0, num_particles):
             """
             MOTION MODEL
             """
             x_t0 = X_bar[m, 0:3]
+            # TIMING_START: motion_model
+            motion_model_start = time.time()
+            # TIMING_END: motion_model
             x_t1 = motion_model.update(u_t0, u_t1, x_t0)
+            # TIMING_START: motion_model
+            motion_model_time = time.time() - motion_model_start
+            motion_model_total_time += motion_model_time
+            # TIMING_END: motion_model
 
             """
             SENSOR MODEL
             """
             if (meas_type == "L"):
                 z_t = ranges
+                # TIMING_START: sensor_model
+                sensor_model_start = time.time()
+                # TIMING_END: sensor_model
                 w_t = sensor_model.beam_range_finder_model(z_t, x_t1)
+                # TIMING_START: sensor_model
+                sensor_model_time = time.time() - sensor_model_start
+                sensor_model_total_time += sensor_model_time
+                # TIMING_END: sensor_model
+                # TIMING_START: ray_casting_total
+                ray_casting_total_time += sensor_model.ray_casting_time
+                # TIMING_END: ray_casting_total
                 X_bar_new[m, :] = np.hstack((x_t1, w_t))
             else:
                 X_bar_new[m, :] = np.hstack((x_t1, X_bar[m, 3]))
@@ -162,10 +186,31 @@ if __name__ == '__main__':
         X_bar = X_bar_new
         u_t0 = u_t1
 
+        # TIMING_PRINT: motion_model
+        print("  TIMING: motion_model total = {:.4f}s".format(motion_model_total_time))
+        # TIMING_PRINT: motion_model
+        
+        # TIMING_PRINT: sensor_model
+        if (meas_type == "L"):
+            print("  TIMING: sensor_model (beam_range_finder_model) total = {:.4f}s".format(sensor_model_total_time))
+            # TIMING_PRINT: ray_casting
+            print("  TIMING: ray_casting (within sensor_model) total = {:.4f}s".format(ray_casting_total_time))
+            # TIMING_PRINT: ray_casting
+        # TIMING_PRINT: sensor_model
+
         """
         RESAMPLING
         """
+        # TIMING_START: resampler
+        resampler_start = time.time()
+        # TIMING_END: resampler
         X_bar = resampler.low_variance_sampler(X_bar)
+        # TIMING_START: resampler
+        resampler_time = time.time() - resampler_start
+        # TIMING_END: resampler
+        # TIMING_PRINT: resampler
+        print("  TIMING: resampler = {:.4f}s".format(resampler_time))
+        # TIMING_PRINT: resampler
 
         if args.visualize:
             visualize_timestep(X_bar, time_idx, args.output)

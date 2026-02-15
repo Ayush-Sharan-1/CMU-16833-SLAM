@@ -46,6 +46,10 @@ class SensorModel:
         self.map_resolution = self.map_size_x / self.occupancy_map.shape[0]
 
         self.laser_offset = 25 #in cm
+        
+        # TIMING_START: ray_casting_instance_var
+        self.ray_casting_time = 0.0  # Instance variable to track ray casting time
+        # TIMING_END: ray_casting_instance_var
 
     def ray_casting(self, x0, y0, theta_beam):
         step_size = self.map_resolution/2
@@ -132,11 +136,22 @@ class SensorModel:
         x_laser = x_t1[0] + self.laser_offset * np.cos(x_t1[2])
         y_laser = x_t1[1] + self.laser_offset * np.sin(x_t1[2])
 
+        # TIMING_START: ray_casting_total
+        ray_casting_total_time = 0.0
+        # TIMING_END: ray_casting_total
+
         for k in range(0, 180, self._subsampling):
             angle = -np.pi/2 + k * (np.pi/180)
             theta_beam = x_t1[2] + angle
 
+            # TIMING_START: ray_casting
+            ray_casting_start = time.time()
+            # TIMING_END: ray_casting
             z_t_k_star = self.ray_casting(x_laser, y_laser, theta_beam)
+            # TIMING_START: ray_casting
+            ray_casting_time = time.time() - ray_casting_start
+            ray_casting_total_time += ray_casting_time
+            # TIMING_END: ray_casting
 
             p_hit = self.compute_hit_likelihood(z_t1_arr[k], z_t_k_star)
             p_short = self.compute_short_likelihood(z_t1_arr[k], z_t_k_star)
@@ -148,5 +163,10 @@ class SensorModel:
             
             p = max(p, 1e-12)
             prob_zt1 += np.log(p)
+
+        # TIMING_START: ray_casting_total
+        # Store ray casting time for this sensor model call
+        self.ray_casting_time = ray_casting_total_time
+        # TIMING_END: ray_casting_total
 
         return prob_zt1

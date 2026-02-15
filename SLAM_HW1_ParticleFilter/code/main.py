@@ -99,6 +99,13 @@ if __name__ == '__main__':
     num_particles = args.num_particles
     X_bar = init_particles_random(num_particles, occupancy_map)
     # X_bar = init_particles_freespace(num_particles, occupancy_map)
+
+    if not os.path.exists('../data/directional_ray_table.npy'):
+        sensor_model.precompute_directional_ray_table(save_path='../data/directional_ray_table.npy')
+    else:
+        sensor_model.directional_ray_table = np.load('../data/directional_ray_table.npy')
+        sensor_model.precompute_num_directions = sensor_model.directional_ray_table.shape[2]
+        
     """
     Monte Carlo Localization Algorithm : Main Loop
     """
@@ -147,6 +154,7 @@ if __name__ == '__main__':
         motion_model_total_time = 0.0
         sensor_model_total_time = 0.0
         ray_casting_total_time = 0.0
+        compute_hit_likelihood_total_time = 0.0
         # TIMING_END: motion_model_total
         
         for m in range(0, num_particles):
@@ -178,6 +186,7 @@ if __name__ == '__main__':
                 # TIMING_END: sensor_model
                 # TIMING_START: ray_casting_total
                 ray_casting_total_time += sensor_model.ray_casting_time
+                compute_hit_likelihood_total_time += sensor_model.compute_hit_likelihood_time
                 # TIMING_END: ray_casting_total
                 X_bar_new[m, :] = np.hstack((x_t1, w_t))
             else:
@@ -196,6 +205,9 @@ if __name__ == '__main__':
             # TIMING_PRINT: ray_casting
             print("  TIMING: ray_casting (within sensor_model) total = {:.4f}s".format(ray_casting_total_time))
             # TIMING_PRINT: ray_casting
+            # TIMING_PRINT: compute_hit_likelihood
+            print("  TIMING: compute_hit_likelihood (within sensor_model) total = {:.4f}s".format(compute_hit_likelihood_total_time))
+            # TIMING_PRINT: compute_hit_likelihood
         # TIMING_PRINT: sensor_model
 
         """

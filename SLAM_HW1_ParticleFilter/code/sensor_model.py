@@ -38,7 +38,7 @@ class SensorModel:
         self._min_probability = 0.35
 
         # Used in sampling angles in ray casting
-        self._subsampling = 2
+        self._subsampling = 5
 
         self.occupancy_map = map_obj.get_map()
         self.map_size_x = map_obj.get_map_size_x()
@@ -46,6 +46,11 @@ class SensorModel:
         self.map_resolution = self.map_size_x / self.occupancy_map.shape[0]
 
         self.laser_offset = 25 #in cm
+
+        self.precompute_num_directions = 72
+
+        self._hit_gaussian_norm = 1.0 / (np.sqrt(2.0 * np.pi) * self._sigma_hit)
+        self._hit_inv_sigma = 1.0 / (2.0 * self._sigma_hit * self._sigma_hit)
         
         # TIMING_START: ray_casting_instance_var
         self.ray_casting_time = 0.0  # Instance variable to track ray casting time
@@ -61,6 +66,13 @@ class SensorModel:
         x1_grid = int(x1 / self.map_resolution)
         y1_grid = int(y1 / self.map_resolution)
 
+        # Get map dimensions
+        H, W = self.occupancy_map.shape
+
+        # Check if starting point is out of bounds
+        if x0_grid < 0 or x0_grid >= W or y0_grid < 0 or y0_grid >= H:
+            return self._max_range
+
         dx = abs(x1_grid - x0_grid)
         dy = abs(y1_grid - y0_grid)
 
@@ -71,6 +83,9 @@ class SensorModel:
         if dx > dy:
             err = dx / 2.0
             while x != x1_grid:
+                # Check bounds before accessing map
+                if x < 0 or x >= W or y < 0 or y >= H:
+                    return self._max_range
                 if self.occupancy_map[y, x] > self._min_probability:
                     return np.sqrt((x - x0_grid)**2 + (y - y0_grid)**2) * self.map_resolution
                 err -= dy
@@ -81,6 +96,9 @@ class SensorModel:
         else:
             err = dy / 2.0
             while y != y1_grid:
+                # Check bounds before accessing map
+                if x < 0 or x >= W or y < 0 or y >= H:
+                    return self._max_range
                 if self.occupancy_map[y, x] > self._min_probability:
                     return np.sqrt((x - x0_grid)**2 + (y - y0_grid)**2) * self.map_resolution
                 err -= dx
@@ -90,6 +108,74 @@ class SensorModel:
                 y += sy
 
         return self._max_range
+
+    def precompute_directional_ray_table(self, save_path=None):
+        """
+        Precompute ray casting for each map cell and global direction.
+        """
+
+        H, W = self.occupancy_map.shape
+
+        self.directional_ray_table = np.full(
+            (H, W, self.precompute_num_directions),
+            self._max_range,
+            dtype=np.float32
+        )
+
+        print("Precomputing directional ray table...")
+
+        for y in range(H):
+            for x in range(W):
+
+                # skip occupied cells
+                if self.occupancy_map[y, x] > self._min_probability:
+                    continue
+
+                x_world = x * self.map_resolution
+                y_world = y * self.map_resolution
+
+                for d in range(self.precompute_num_directions):
+                    theta = 2.0 * np.pi * d / self.precompute_num_directions
+                    dist = self.ray_casting(x_world, y_world, theta)
+                    self.directional_ray_table[y, x, d] = dist
+
+            if y % 20 == 0:
+                print(f"Row {y}/{H}")
+
+        if save_path is not None:
+            np.save(save_path, self.directional_ray_table)
+
+    def get_predicted_range(self, x_laser, y_laser, theta_beam):
+        """
+        Lookup predicted beam range with interpolation.
+        """
+
+        # convert to grid
+        x_grid = int(x_laser / self.map_resolution)
+        y_grid = int(y_laser / self.map_resolution)
+
+        H, W, _ = self.directional_ray_table.shape
+
+        # out of bounds
+        if x_grid < 0 or x_grid >= W or y_grid < 0 or y_grid >= H:
+            return self._max_range
+
+        # normalize angle
+        theta = theta_beam % (2.0 * np.pi)
+
+        # convert to bin
+        angle_float = theta / (2.0 * np.pi) * self.precompute_num_directions
+
+        low = int(np.floor(angle_float)) % self.precompute_num_directions
+        high = (low + 1) % self.precompute_num_directions
+
+        alpha = angle_float - np.floor(angle_float)
+
+        # interpolate
+        d_low = self.directional_ray_table[y_grid, x_grid, low]
+        d_high = self.directional_ray_table[y_grid, x_grid, high]
+
+        return (1.0 - alpha) * d_low + alpha * d_high
 
     def compute_hit_eta(self, z_t_k_star):
         upper = (self._max_range - z_t_k_star)/self._sigma_hit
@@ -102,19 +188,20 @@ class SensorModel:
         return eta
     
     def compute_hit_likelihood(self, z_t1, z_t_k_star):
-        p_hit = norm.pdf(z_t1, loc=z_t_k_star, scale=self._sigma_hit)
-        eta = self.compute_hit_eta(z_t_k_star)
-        
-        return eta * p_hit
+        diff = z_t1 - z_t_k_star
+        p_hit = self._hit_gaussian_norm * np.exp(-self._hit_inv_sigma * diff * diff)
+        # eta = self.compute_hit_eta(z_t_k_star)
+        return p_hit
     
     def compute_short_likelihood(self, z_t1, z_t_k_star):
 
         denom = 1 - np.exp(-self._lambda_short * z_t_k_star)
         denom = max(denom, 1e-12)
-        eta = 1.0/denom
+        # eta = 1.0/denom
         
         if(z_t1 >= 0 and z_t1 <= z_t_k_star):
-            p_short = eta * self._lambda_short * np.exp(-self._lambda_short * z_t1)
+            # p_short = eta * self._lambda_short * np.exp(-self._lambda_short * z_t1)
+            p_short = self._lambda_short * np.exp(-self._lambda_short * z_t1)
         else:
             p_short = 0
 
@@ -164,7 +251,7 @@ class SensorModel:
             # TIMING_START: ray_casting
             ray_casting_start = time.time()
             # TIMING_END: ray_casting
-            z_t_k_star = self.ray_casting(x_laser, y_laser, theta_beam)
+            z_t_k_star = self.get_predicted_range(x_laser, y_laser, theta_beam)
             # TIMING_START: ray_casting
             ray_casting_time = time.time() - ray_casting_start
             ray_casting_total_time += ray_casting_time

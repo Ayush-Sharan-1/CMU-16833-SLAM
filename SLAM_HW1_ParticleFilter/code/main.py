@@ -59,6 +59,17 @@ def init_particles_freespace(num_particles, occupancy_map):
     """
     X_bar_init = np.zeros((num_particles, 4))
 
+    obstacle_mask = (occupancy_map > 0.35) | (occupancy_map < 0.0)
+    free_mask = ~obstacle_mask
+    free_cells = np.argwhere(free_mask)
+    num_free_cells = free_cells.shape[0]
+    sampled_indices = np.random.choice(num_free_cells, num_particles, replace=True)
+    sampled_cells = free_cells[sampled_indices]
+    X_bar_init[:, 0] = sampled_cells[:, 1] * 10
+    X_bar_init[:, 1] = sampled_cells[:, 0] * 10
+    X_bar_init[:, 2] = np.random.uniform(-np.pi, np.pi, num_particles)
+    X_bar_init[:, 3] = 1.0 / num_particles
+
     return X_bar_init
 
 
@@ -96,8 +107,8 @@ if __name__ == '__main__':
     resampler = Resampling()
 
     num_particles = args.num_particles
-    X_bar = init_particles_random(num_particles, occupancy_map)
-    # X_bar = init_particles_freespace(num_particles, occupancy_map)
+    # X_bar = init_particles_random(num_particles, occupancy_map)
+    X_bar = init_particles_freespace(num_particles, occupancy_map)
 
     if not os.path.exists('../data/directional_ray_table.npy'):
         sensor_model.precompute_directional_ray_table(save_path='../data/directional_ray_table.npy')

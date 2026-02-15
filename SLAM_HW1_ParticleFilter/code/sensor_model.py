@@ -23,13 +23,13 @@ class SensorModel:
         TODO : Tune Sensor Model parameters here
         The original numbers are for reference but HAVE TO be tuned.
         """
-        self._z_hit = 0.7
-        self._z_short = 0.1
-        self._z_max = 0.1
-        self._z_rand = 0.1
+        self._z_hit = 0.07
+        self._z_short = 0.03
+        self._z_max = 0.0
+        self._z_rand = 0.9
 
-        self._sigma_hit = 50
-        self._lambda_short = 0.1
+        self._sigma_hit = 773
+        self._lambda_short = 0.0045
 
         # Used in p_max and p_rand, optionally in ray casting
         self._max_range = 1000
@@ -51,6 +51,7 @@ class SensorModel:
 
         self._hit_gaussian_norm = 1.0 / (np.sqrt(2.0 * np.pi) * self._sigma_hit)
         self._hit_inv_sigma = 1.0 / (2.0 * self._sigma_hit * self._sigma_hit)
+
 
     def ray_casting(self, x0, y0, theta):
         x1 = x0 + self._max_range * np.cos(theta)
@@ -78,7 +79,6 @@ class SensorModel:
         if dx > dy:
             err = dx / 2.0
             while x != x1_grid:
-                # Check bounds before accessing map
                 if x < 0 or x >= W or y < 0 or y >= H:
                     return self._max_range
                 if self.occupancy_map[y, x] > self._min_probability:
@@ -91,7 +91,6 @@ class SensorModel:
         else:
             err = dy / 2.0
             while y != y1_grid:
-                # Check bounds before accessing map
                 if x < 0 or x >= W or y < 0 or y >= H:
                     return self._max_range
                 if self.occupancy_map[y, x] > self._min_probability:
@@ -122,8 +121,8 @@ class SensorModel:
         for y in range(H):
             for x in range(W):
 
-                # skip occupied cells
-                if self.occupancy_map[y, x] > self._min_probability:
+                # skip occupied or unknown cells
+                if (self.occupancy_map[y, x] > self._min_probability) or (self.occupancy_map[y, x] < 0.0):
                     continue
 
                 x_world = x * self.map_resolution
@@ -182,15 +181,15 @@ class SensorModel:
 
         return eta
     
-    def compute_hit_likelihood(self, z_t1, z_t_k_star):
+    def compute_hit_likelihood(self, z_t1, z_t_k_star, hit_inv_sigma):
         diff = z_t1 - z_t_k_star
-        p_hit = self._hit_gaussian_norm * np.exp(-self._hit_inv_sigma * diff * diff)
+        p_hit = self._hit_gaussian_norm * np.exp(-hit_inv_sigma * diff * diff)
         # eta = self.compute_hit_eta(z_t_k_star)
         return p_hit
     
-    def compute_short_likelihood(self, z_t1, z_t_k_star):
+    def compute_short_likelihood(self, z_t1, z_t_k_star, lambda_short):
 
-        denom = 1 - np.exp(-self._lambda_short * z_t_k_star)
+        denom = 1 - np.exp(-lambda_short * z_t_k_star)
         denom = max(denom, 1e-12)
         # eta = 1.0/denom
         
@@ -240,8 +239,8 @@ class SensorModel:
 
             z_t_k_star = self.get_predicted_range(x_laser, y_laser, theta_beam)
 
-            p_hit = self.compute_hit_likelihood(z_t1_arr[k], z_t_k_star)
-            p_short = self.compute_short_likelihood(z_t1_arr[k], z_t_k_star)
+            p_hit = self.compute_hit_likelihood(z_t1_arr[k], z_t_k_star, self._hit_inv_sigma)
+            p_short = self.compute_short_likelihood(z_t1_arr[k], z_t_k_star, self._lambda_short)
             p_max = self.compute_max_likelihood(z_t1_arr[k])
             p_rand = self.compute_rand_likelihood(z_t1_arr[k])
 
@@ -251,4 +250,4 @@ class SensorModel:
             p = max(p, 1e-12)
             prob_zt1 += np.log(p)
 
-        return prob_zt1
+        return np.exp(prob_zt1)

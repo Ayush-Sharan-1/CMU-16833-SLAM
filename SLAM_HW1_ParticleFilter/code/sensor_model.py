@@ -51,11 +51,6 @@ class SensorModel:
 
         self._hit_gaussian_norm = 1.0 / (np.sqrt(2.0 * np.pi) * self._sigma_hit)
         self._hit_inv_sigma = 1.0 / (2.0 * self._sigma_hit * self._sigma_hit)
-        
-        # TIMING_START: ray_casting_instance_var
-        self.ray_casting_time = 0.0  # Instance variable to track ray casting time
-        self.compute_hit_likelihood_time = 0.0  # Instance variable to track compute_hit_likelihood time
-        # TIMING_END: ray_casting_instance_var
 
     def ray_casting(self, x0, y0, theta):
         x1 = x0 + self._max_range * np.cos(theta)
@@ -239,32 +234,13 @@ class SensorModel:
         x_laser = x_t1[0] + self.laser_offset * np.cos(x_t1[2])
         y_laser = x_t1[1] + self.laser_offset * np.sin(x_t1[2])
 
-        # TIMING_START: ray_casting_total
-        ray_casting_total_time = 0.0
-        compute_hit_likelihood_total_time = 0.0
-        # TIMING_END: ray_casting_total
-
         for k in range(0, 180, self._subsampling):
             angle = -np.pi/2 + k * (np.pi/180)
             theta_beam = x_t1[2] + angle
 
-            # TIMING_START: ray_casting
-            ray_casting_start = time.time()
-            # TIMING_END: ray_casting
             z_t_k_star = self.get_predicted_range(x_laser, y_laser, theta_beam)
-            # TIMING_START: ray_casting
-            ray_casting_time = time.time() - ray_casting_start
-            ray_casting_total_time += ray_casting_time
-            # TIMING_END: ray_casting
 
-            # TIMING_START: compute_hit_likelihood
-            compute_hit_likelihood_start = time.time()
-            # TIMING_END: compute_hit_likelihood
             p_hit = self.compute_hit_likelihood(z_t1_arr[k], z_t_k_star)
-            # TIMING_START: compute_hit_likelihood
-            compute_hit_likelihood_time = time.time() - compute_hit_likelihood_start
-            compute_hit_likelihood_total_time += compute_hit_likelihood_time
-            # TIMING_END: compute_hit_likelihood
             p_short = self.compute_short_likelihood(z_t1_arr[k], z_t_k_star)
             p_max = self.compute_max_likelihood(z_t1_arr[k])
             p_rand = self.compute_rand_likelihood(z_t1_arr[k])
@@ -274,11 +250,5 @@ class SensorModel:
             
             p = max(p, 1e-12)
             prob_zt1 += np.log(p)
-
-        # TIMING_START: ray_casting_total
-        # Store ray casting time for this sensor model call
-        self.ray_casting_time = ray_casting_total_time
-        self.compute_hit_likelihood_time = compute_hit_likelihood_total_time
-        # TIMING_END: ray_casting_total
 
         return prob_zt1

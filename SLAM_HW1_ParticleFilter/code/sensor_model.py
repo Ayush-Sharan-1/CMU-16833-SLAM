@@ -40,7 +40,7 @@ class SensorModel:
         # Used in sampling angles in ray casting
         self._subsampling = 2
 
-        self.occupancy_map = map_obj.get_occupancy_map()
+        self.occupancy_map = map_obj.get_map()
         self.map_size_x = map_obj.get_map_size_x()
         self.map_size_y = map_obj.get_map_size_y()
         self.map_resolution = self.map_size_x / self.occupancy_map.shape[0]

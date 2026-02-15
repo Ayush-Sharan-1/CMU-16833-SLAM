@@ -21,8 +21,8 @@ class MotionModel:
         """
         self._alpha1 = 0.0001
         self._alpha2 = 0.0001
-        self._alpha3 = 0.01
-        self._alpha4 = 0.01
+        self._alpha3 = 0.0001
+        self._alpha4 = 0.0001
 
 
     def update(self, u_t0, u_t1, x_t0):
@@ -56,9 +56,9 @@ class MotionModel:
         delta_trans_var = self._alpha3 * delta_trans**2 + self._alpha4 * (delta_rot1**2 + delta_rot2**2)
         delta_rot2_var = self._alpha1 * delta_rot2**2 + self._alpha2 * delta_trans**2
 
-        delta_rot1_hat = delta_rot1 - np.random.normal(0, math.sqrt(max(delta_rot1_var, 1e-10)))
-        delta_trans_hat = delta_trans - np.random.normal(0, math.sqrt(max(delta_trans_var, 1e-10)))
-        delta_rot2_hat = delta_rot2 - np.random.normal(0, math.sqrt(max(delta_rot2_var, 1e-10)))
+        delta_rot1_hat = delta_rot1 + np.random.normal(0, math.sqrt(max(delta_rot1_var, 1e-10)))
+        delta_trans_hat = delta_trans + np.random.normal(0, math.sqrt(max(delta_trans_var, 1e-10)))
+        delta_rot2_hat = delta_rot2 + np.random.normal(0, math.sqrt(max(delta_rot2_var, 1e-10)))
 
         # Apply noisy motion to particle state
         x, y, theta = x_t0[0], x_t0[1], x_t0[2]

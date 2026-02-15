@@ -23,10 +23,10 @@ class SensorModel:
         TODO : Tune Sensor Model parameters here
         The original numbers are for reference but HAVE TO be tuned.
         """
-        self._z_hit = 0.07
-        self._z_short = 0.03
-        self._z_max = 0.0
-        self._z_rand = 0.9
+        self._z_hit = 0.7
+        self._z_short = 0.1
+        self._z_max = 0.1
+        self._z_rand = 0.1
 
         self._sigma_hit = 773
         self._lambda_short = 0.0045
@@ -171,9 +171,9 @@ class SensorModel:
 
         return (1.0 - alpha) * d_low + alpha * d_high
 
-    def compute_hit_eta(self, z_t_k_star):
-        upper = (self._max_range - z_t_k_star)/self._sigma_hit
-        lower = (0 - z_t_k_star)/self._sigma_hit
+    def compute_hit_eta(self, z_t_k_star, sigma_hit):
+        upper = (self._max_range - z_t_k_star)/sigma_hit
+        lower = (0 - z_t_k_star)/sigma_hit
 
         denom = norm.cdf(upper) - norm.cdf(lower)
         denom = max(denom, 1e-12)
@@ -181,21 +181,21 @@ class SensorModel:
 
         return eta
     
-    def compute_hit_likelihood(self, z_t1, z_t_k_star, hit_inv_sigma):
+    def compute_hit_likelihood(self, z_t1, z_t_k_star, hit_inv_sigma, hit_gaussian_norm, sigma_hit  ):
         diff = z_t1 - z_t_k_star
-        p_hit = self._hit_gaussian_norm * np.exp(-hit_inv_sigma * diff * diff)
-        # eta = self.compute_hit_eta(z_t_k_star)
-        return p_hit
+        p_hit = hit_gaussian_norm * np.exp(-hit_inv_sigma * diff * diff)
+        eta = self.compute_hit_eta(z_t_k_star, sigma_hit)
+        return eta * p_hit
     
     def compute_short_likelihood(self, z_t1, z_t_k_star, lambda_short):
 
         denom = 1 - np.exp(-lambda_short * z_t_k_star)
         denom = max(denom, 1e-12)
-        # eta = 1.0/denom
+        eta = 1.0/denom
         
         if(z_t1 >= 0 and z_t1 <= z_t_k_star):
             # p_short = eta * self._lambda_short * np.exp(-self._lambda_short * z_t1)
-            p_short = self._lambda_short * np.exp(-self._lambda_short * z_t1)
+            p_short = eta * lambda_short * np.exp(-lambda_short * z_t1)
         else:
             p_short = 0
 
@@ -239,7 +239,7 @@ class SensorModel:
 
             z_t_k_star = self.get_predicted_range(x_laser, y_laser, theta_beam)
 
-            p_hit = self.compute_hit_likelihood(z_t1_arr[k], z_t_k_star, self._hit_inv_sigma)
+            p_hit = self.compute_hit_likelihood(z_t1_arr[k], z_t_k_star, self._hit_inv_sigma, self._hit_gaussian_norm, self._sigma_hit)
             p_short = self.compute_short_likelihood(z_t1_arr[k], z_t_k_star, self._lambda_short)
             p_max = self.compute_max_likelihood(z_t1_arr[k])
             p_rand = self.compute_rand_likelihood(z_t1_arr[k])

@@ -183,6 +183,7 @@ if __name__ == '__main__':
         """
         RESAMPLING
         """
+        X_bar[:, 3] = X_bar[:, 3] / np.sum(X_bar[:, 3]) + 1e-12
         X_bar = resampler.low_variance_sampler(X_bar)
 
         if args.visualize:

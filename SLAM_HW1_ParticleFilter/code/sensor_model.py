@@ -49,29 +49,45 @@ class SensorModel:
         
         # TIMING_START: ray_casting_instance_var
         self.ray_casting_time = 0.0  # Instance variable to track ray casting time
+        self.compute_hit_likelihood_time = 0.0  # Instance variable to track compute_hit_likelihood time
         # TIMING_END: ray_casting_instance_var
 
-    def ray_casting(self, x0, y0, theta_beam):
-        step_size = self.map_resolution/2
+    def ray_casting(self, x0, y0, theta):
+        x1 = x0 + self._max_range * np.cos(theta)
+        y1 = y0 + self._max_range * np.sin(theta)
 
-        d = step_size
+        x0_grid = int(x0 / self.map_resolution)
+        y0_grid = int(y0 / self.map_resolution)
+        x1_grid = int(x1 / self.map_resolution)
+        y1_grid = int(y1 / self.map_resolution)
 
-        while d < self._max_range:
+        dx = abs(x1_grid - x0_grid)
+        dy = abs(y1_grid - y0_grid)
 
-            x = x0 + d * np.cos(theta_beam)
-            y = y0 + d * np.sin(theta_beam)
+        x, y = x0_grid, y0_grid
+        sx = 1 if x0_grid < x1_grid else -1
+        sy = 1 if y0_grid < y1_grid else -1
 
-            x_grid = int(np.floor(x/self.map_resolution))
-            y_grid = int(np.floor(y/self.map_resolution))
-
-            if(x_grid >= self.occupancy_map.shape[1] or x_grid < 0 or \
-               y_grid >= self.occupancy_map.shape[0] or y_grid <0):
-                return self._max_range
-            
-            if(self.occupancy_map[y_grid, x_grid] > self._min_probability):
-                return d
-            
-            d += step_size
+        if dx > dy:
+            err = dx / 2.0
+            while x != x1_grid:
+                if self.occupancy_map[y, x] > self._min_probability:
+                    return np.sqrt((x - x0_grid)**2 + (y - y0_grid)**2) * self.map_resolution
+                err -= dy
+                if err < 0:
+                    y += sy
+                    err += dx
+                x += sx
+        else:
+            err = dy / 2.0
+            while y != y1_grid:
+                if self.occupancy_map[y, x] > self._min_probability:
+                    return np.sqrt((x - x0_grid)**2 + (y - y0_grid)**2) * self.map_resolution
+                err -= dx
+                if err < 0:
+                    x += sx
+                    err += dy
+                y += sy
 
         return self._max_range
 
@@ -138,6 +154,7 @@ class SensorModel:
 
         # TIMING_START: ray_casting_total
         ray_casting_total_time = 0.0
+        compute_hit_likelihood_total_time = 0.0
         # TIMING_END: ray_casting_total
 
         for k in range(0, 180, self._subsampling):
@@ -153,7 +170,14 @@ class SensorModel:
             ray_casting_total_time += ray_casting_time
             # TIMING_END: ray_casting
 
+            # TIMING_START: compute_hit_likelihood
+            compute_hit_likelihood_start = time.time()
+            # TIMING_END: compute_hit_likelihood
             p_hit = self.compute_hit_likelihood(z_t1_arr[k], z_t_k_star)
+            # TIMING_START: compute_hit_likelihood
+            compute_hit_likelihood_time = time.time() - compute_hit_likelihood_start
+            compute_hit_likelihood_total_time += compute_hit_likelihood_time
+            # TIMING_END: compute_hit_likelihood
             p_short = self.compute_short_likelihood(z_t1_arr[k], z_t_k_star)
             p_max = self.compute_max_likelihood(z_t1_arr[k])
             p_rand = self.compute_rand_likelihood(z_t1_arr[k])
@@ -167,6 +191,7 @@ class SensorModel:
         # TIMING_START: ray_casting_total
         # Store ray casting time for this sensor model call
         self.ray_casting_time = ray_casting_total_time
+        self.compute_hit_likelihood_time = compute_hit_likelihood_total_time
         # TIMING_END: ray_casting_total
 
         return prob_zt1

@@ -1,0 +1,28 @@
+Naive approach
+
+Processing time step 5 at time 0.20423s
+  TIMING: motion_model total = 0.0197s
+  TIMING: sensor_model (beam_range_finder_model) total = 14.8036s
+  TIMING: ray_casting (within sensor_model) total = 11.6528s
+  TIMING: resampler = 0.0000s
+
+sub_sampling: 2 -> 5
+  Processing time step 5 at time 0.20423s
+  TIMING: motion_model total = 0.0017s
+  TIMING: sensor_model (beam_range_finder_model) total = 5.8178s
+  TIMING: ray_casting (within sensor_model) total = 4.6052s
+  TIMING: resampler = 0.0000s
+
+sub_sampling = 5, step_size: resolution/2 -> resolution
+Processing time step 5 at time 0.20423s
+  TIMING: motion_model total = 0.0017s
+  TIMING: sensor_model (beam_range_finder_model) total = 5.8178s
+  TIMING: ray_casting (within sensor_model) total = 4.6052s
+  TIMING: resampler = 0.0000s
+
+Implementing Bresenham ray casting
+Processing time step 5 at time 0.20423s
+  TIMING: motion_model total = 0.0122s
+  TIMING: sensor_model (beam_range_finder_model) total = 3.5582s
+  TIMING: ray_casting (within sensor_model) total = 0.4205s
+  TIMING: resampler = 0.0000s

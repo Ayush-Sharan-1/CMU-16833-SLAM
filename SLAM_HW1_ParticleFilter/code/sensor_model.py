@@ -23,13 +23,13 @@ class SensorModel:
         TODO : Tune Sensor Model parameters here
         The original numbers are for reference but HAVE TO be tuned.
         """
-        self._z_hit = 0.7
-        self._z_short = 0.1
-        self._z_max = 0.1
-        self._z_rand = 0.1
+        self._z_hit = 0.4
+        self._z_short = 0.01
+        self._z_max = 0.02
+        self._z_rand = 0.57
 
-        self._sigma_hit = 773
-        self._lambda_short = 0.0045
+        self._sigma_hit = 400
+        self._lambda_short = 0.005
 
         # Used in p_max and p_rand, optionally in ray casting
         self._max_range = 1000
@@ -38,7 +38,7 @@ class SensorModel:
         self._min_probability = 0.35
 
         # Used in sampling angles in ray casting
-        self._subsampling = 5
+        self._subsampling = 2
 
         self.occupancy_map = map_obj.get_map()
         self.map_size_x = map_obj.get_map_size_x()
@@ -47,7 +47,7 @@ class SensorModel:
 
         self.laser_offset = 25 #in cm
 
-        self.precompute_num_directions = 72
+        self.precompute_num_directions = 180
 
         self._hit_gaussian_norm = 1.0 / (np.sqrt(2.0 * np.pi) * self._sigma_hit)
         self._hit_inv_sigma = 1.0 / (2.0 * self._sigma_hit * self._sigma_hit)

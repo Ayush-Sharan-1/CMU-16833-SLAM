@@ -86,6 +86,8 @@ if __name__ == '__main__':
     """
     Initialize Parameters
     """
+
+    np.random.seed(42) 
     parser = argparse.ArgumentParser()
     parser.add_argument('--path_to_map', default='../data/map/wean.dat')
     parser.add_argument('--path_to_log', default='../data/log/robotdata1.log')

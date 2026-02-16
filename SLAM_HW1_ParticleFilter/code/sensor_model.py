@@ -228,26 +228,46 @@ class SensorModel:
         TODO : Add your code here
         """
 
-        prob_zt1 = 0.0 # changed 1.0 -> 0.0 as we are summing log likelihoods
-
         x_laser = x_t1[0] + self.laser_offset * np.cos(x_t1[2])
         y_laser = x_t1[1] + self.laser_offset * np.sin(x_t1[2])
 
-        for k in range(0, 180, self._subsampling):
-            angle = -np.pi/2 + k * (np.pi/180)
-            theta_beam = x_t1[2] + angle
-
-            z_t_k_star = self.get_predicted_range(x_laser, y_laser, theta_beam)
-
-            p_hit = self.compute_hit_likelihood(z_t1_arr[k], z_t_k_star, self._hit_inv_sigma, self._hit_gaussian_norm, self._sigma_hit)
-            p_short = self.compute_short_likelihood(z_t1_arr[k], z_t_k_star, self._lambda_short)
-            p_max = self.compute_max_likelihood(z_t1_arr[k])
-            p_rand = self.compute_rand_likelihood(z_t1_arr[k])
-
-            p = self._z_hit * p_hit + self._z_short * p_short + \
-                self._z_max * p_max + self._z_rand * p_rand
-            
-            p = max(p, 1e-12)
-            prob_zt1 += np.log(p)
-
+        k_arr = np.arange(0, 180, self._subsampling)
+        angles = -np.pi/2 + k_arr * (np.pi/180)
+        theta_beams = x_t1[2] + angles
+        
+        z_t1_values = z_t1_arr[k_arr]
+        
+        get_predicted_range_vec = np.vectorize(self.get_predicted_range)
+        z_t_k_star = get_predicted_range_vec(x_laser, y_laser, theta_beams)
+        
+        # hit likelihood
+        diff = z_t1_values - z_t_k_star
+        p_hit = self._hit_gaussian_norm * np.exp(-self._hit_inv_sigma * diff * diff)
+        # hit_eta
+        upper = (self._max_range - z_t_k_star) / self._sigma_hit
+        lower = (0 - z_t_k_star) / self._sigma_hit
+        denom = norm.cdf(upper) - norm.cdf(lower)
+        denom = np.maximum(denom, 1e-12)
+        eta_hit = 1.0 / denom
+        p_hit = eta_hit * p_hit
+        
+        #short likelihood
+        denom_short = 1 - np.exp(-self._lambda_short * z_t_k_star)
+        denom_short = np.maximum(denom_short, 1e-12)
+        eta_short = 1.0 / denom_short
+        p_short = np.where((z_t1_values >= 0) & (z_t1_values <= z_t_k_star),
+                          eta_short * self._lambda_short * np.exp(-self._lambda_short * z_t1_values),0.0)
+        
+        # max likelihood
+        p_max = np.where(z_t1_values == self._max_range, 1.0, 0.0)
+        
+        # rand likelihood 
+        p_rand = np.where((z_t1_values >= 0) & (z_t1_values < self._max_range),
+                         1.0 / self._max_range, 0.0)
+        
+        p = self._z_hit * p_hit + self._z_short * p_short + self._z_max * p_max + self._z_rand * p_rand
+        
+        p = np.maximum(p, 1e-12)
+        prob_zt1 = np.sum(np.log(p))
+        
         return np.exp(prob_zt1)

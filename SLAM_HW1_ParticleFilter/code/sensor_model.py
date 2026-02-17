@@ -23,19 +23,27 @@ class SensorModel:
         TODO : Tune Sensor Model parameters here
         The original numbers are for reference but HAVE TO be tuned.
         """
-        self._z_hit = 0.4
-        self._z_short = 0.01
-        self._z_max = 0.02
-        self._z_rand = 0.57
+        # self._z_hit = 0.4
+        # self._z_short = 0.01
+        # self._z_max = 0.02
+        # self._z_rand = 0.57
 
-        self._sigma_hit = 400
-        self._lambda_short = 0.005
+        # self._sigma_hit = 400
+        # self._lambda_short = 0.005
+
+        self._z_hit = 1000
+        self._z_short = 5  # default 0.01
+        self._z_max = 5  # default 0.03
+        self._z_rand = 100000
+
+        self._sigma_hit = 200
+        self._lambda_short = 0.01
 
         # Used in p_max and p_rand, optionally in ray casting
         self._max_range = 1000
 
         # Used for thresholding obstacles of the occupancy map
-        self._min_probability = 0.35
+        self._min_probability = 0.0001    #0.35
 
         # Used in sampling angles in ray casting
         self._subsampling = 2
@@ -47,7 +55,7 @@ class SensorModel:
 
         self.laser_offset = 25 #in cm
 
-        self.precompute_num_directions = 180
+        self.precompute_num_directions = 360
 
         self._hit_gaussian_norm = 1.0 / (np.sqrt(2.0 * np.pi) * self._sigma_hit)
         self._hit_inv_sigma = 1.0 / (2.0 * self._sigma_hit * self._sigma_hit)
@@ -144,15 +152,18 @@ class SensorModel:
         Lookup predicted beam range with interpolation.
         """
 
+        x_laser = np.asarray(x_laser)
+        y_laser = np.asarray(y_laser)
+        theta_beam = np.asarray(theta_beam)
+
         # convert to grid
-        x_grid = int(x_laser / self.map_resolution)
-        y_grid = int(y_laser / self.map_resolution)
+        x_grid = (x_laser / self.map_resolution).astype(int)
+        y_grid = (y_laser / self.map_resolution).astype(int)
 
         H, W, _ = self.directional_ray_table.shape
 
-        # out of bounds
-        if x_grid < 0 or x_grid >= W or y_grid < 0 or y_grid >= H:
-            return self._max_range
+        # Check out of bounds
+        out_of_bounds = (x_grid < 0) | (x_grid >= W) | (y_grid < 0) | (y_grid >= H)
 
         # normalize angle
         theta = theta_beam % (2.0 * np.pi)
@@ -160,16 +171,25 @@ class SensorModel:
         # convert to bin
         angle_float = theta / (2.0 * np.pi) * self.precompute_num_directions
 
-        low = int(np.floor(angle_float)) % self.precompute_num_directions
-        high = (low + 1) % self.precompute_num_directions
+        low = (np.floor(angle_float).astype(int) % self.precompute_num_directions)
+        high = ((low + 1) % self.precompute_num_directions)
 
         alpha = angle_float - np.floor(angle_float)
 
-        # interpolate
-        d_low = self.directional_ray_table[y_grid, x_grid, low]
-        d_high = self.directional_ray_table[y_grid, x_grid, high]
+        # Clamp indices to valid range for safe indexing
+        x_grid_clamped = np.clip(x_grid, 0, W - 1)
+        y_grid_clamped = np.clip(y_grid, 0, H - 1)
 
-        return (1.0 - alpha) * d_low + alpha * d_high
+        # interpolate using advanced indexing
+        d_low = self.directional_ray_table[y_grid_clamped, x_grid_clamped, low]
+        d_high = self.directional_ray_table[y_grid_clamped, x_grid_clamped, high]
+
+        result = (1.0 - alpha) * d_low + alpha * d_high
+        
+        # Set out of bounds to max_range
+        result[out_of_bounds] = self._max_range
+
+        return result
 
     def compute_hit_eta(self, z_t_k_star, sigma_hit):
         upper = (self._max_range - z_t_k_star)/sigma_hit
@@ -222,52 +242,84 @@ class SensorModel:
         """
         param[in] z_t1_arr : laser range readings [array of 180 values] at time t
         param[in] x_t1 : particle state belief [x, y, theta] at time t [world_frame]
+                          All particles [num_particles, 3]
         param[out] prob_zt1 : likelihood of a range scan zt1 at time t
+                          All particles [num_particles]
         """
         """
         TODO : Add your code here
         """
 
-        x_laser = x_t1[0] + self.laser_offset * np.cos(x_t1[2])
-        y_laser = x_t1[1] + self.laser_offset * np.sin(x_t1[2])
+        x_t1 = np.asarray(x_t1)
+        num_particles = x_t1.shape[0]
 
+        # Prune particles in occupied cells
+        x_grid = (x_t1[:, 0] / self.map_resolution).astype(int)
+        y_grid = (x_t1[:, 1] / self.map_resolution).astype(int)
+        H, W = self.occupancy_map.shape
+        valid_mask = (x_grid >= 0) & (x_grid < W) & (y_grid >= 0) & (y_grid < H)
+        occupied_mask = np.zeros(num_particles, dtype=bool)
+        map_values = self.occupancy_map[y_grid[valid_mask], x_grid[valid_mask]]
+        occupied_mask[valid_mask] = (map_values > self._min_probability) | (map_values < 0.0)
+
+        x_laser = x_t1[:, 0] + self.laser_offset * np.cos(x_t1[:, 2])
+        y_laser = x_t1[:, 1] + self.laser_offset * np.sin(x_t1[:, 2])
+
+        # Beam angles
         k_arr = np.arange(0, 180, self._subsampling)
+        num_beams = len(k_arr)
         angles = -np.pi/2 + k_arr * (np.pi/180)
-        theta_beams = x_t1[2] + angles
-        
         z_t1_values = z_t1_arr[k_arr]
         
-        get_predicted_range_vec = np.vectorize(self.get_predicted_range)
-        z_t_k_star = get_predicted_range_vec(x_laser, y_laser, theta_beams)
+        theta_beams = x_t1[:, 2:3] + angles[np.newaxis, :]
+        
+
+        x_laser_expanded = np.repeat(x_laser[:, np.newaxis], num_beams, axis=1)
+        y_laser_expanded = np.repeat(y_laser[:, np.newaxis], num_beams, axis=1) 
+
+        z_t_k_star = self.get_predicted_range(
+            x_laser_expanded.flatten(),
+            y_laser_expanded.flatten(),
+            theta_beams.flatten()
+        ).reshape(num_particles, num_beams)
+        
+        z_t1_values_expanded = np.tile(z_t1_values[np.newaxis, :], (num_particles, 1))
         
         # hit likelihood
-        diff = z_t1_values - z_t_k_star
+        diff = z_t1_values_expanded - z_t_k_star
         p_hit = self._hit_gaussian_norm * np.exp(-self._hit_inv_sigma * diff * diff)
         # hit_eta
         upper = (self._max_range - z_t_k_star) / self._sigma_hit
         lower = (0 - z_t_k_star) / self._sigma_hit
         denom = norm.cdf(upper) - norm.cdf(lower)
         denom = np.maximum(denom, 1e-12)
-        eta_hit = 1.0 / denom
-        p_hit = eta_hit * p_hit
+        # eta_hit = 1.0 / denom
+        p_hit = p_hit
         
         #short likelihood
         denom_short = 1 - np.exp(-self._lambda_short * z_t_k_star)
         denom_short = np.maximum(denom_short, 1e-12)
-        eta_short = 1.0 / denom_short
-        p_short = np.where((z_t1_values >= 0) & (z_t1_values <= z_t_k_star),
-                          eta_short * self._lambda_short * np.exp(-self._lambda_short * z_t1_values),0.0)
+        # eta_short = 1.0 / denom_short
+        # p_short = np.where((z_t1_values_expanded >= 0) & (z_t1_values_expanded <= z_t_k_star),
+        #                  eta_short * self._lambda_short * np.exp(-self._lambda_short * z_t1_values_expanded), 0.0)
         
+        p_short = np.where((z_t1_values_expanded >= 0) & (z_t1_values_expanded <= z_t_k_star),
+                          self._lambda_short * np.exp(-self._lambda_short * z_t1_values_expanded), 0.0)
         # max likelihood
-        p_max = np.where(z_t1_values == self._max_range, 1.0, 0.0)
+        p_max = np.where(z_t1_values_expanded == self._max_range, 1.0, 0.0)
         
-        # rand likelihood 
-        p_rand = np.where((z_t1_values >= 0) & (z_t1_values < self._max_range),
+        # rand likelihood
+        p_rand = np.where((z_t1_values_expanded >= 0) & (z_t1_values_expanded < self._max_range),
                          1.0 / self._max_range, 0.0)
         
+        # Combined likelihood
         p = self._z_hit * p_hit + self._z_short * p_short + self._z_max * p_max + self._z_rand * p_rand
         
         p = np.maximum(p, 1e-12)
-        prob_zt1 = np.sum(np.log(p))
         
-        return np.exp(prob_zt1)
+        prob_zt1 = np.exp(np.sum(np.log(p), axis=1))
+        
+        # Prune particles in occupied cells
+        prob_zt1[occupied_mask] = 0.0
+        
+        return prob_zt1

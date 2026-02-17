@@ -59,7 +59,7 @@ def init_particles_freespace(num_particles, occupancy_map):
     """
     X_bar_init = np.zeros((num_particles, 4))
 
-    obstacle_mask = (occupancy_map > 0.35) | (occupancy_map < 0.0)
+    obstacle_mask = (occupancy_map > 0.2) | (occupancy_map < 0.0)
     free_mask = ~obstacle_mask
     free_cells = np.argwhere(free_mask)
     num_free_cells = free_cells.shape[0]
@@ -87,12 +87,12 @@ if __name__ == '__main__':
     Initialize Parameters
     """
 
-    np.random.seed(42) 
+    # np.random.seed(11203) 
     parser = argparse.ArgumentParser()
     parser.add_argument('--path_to_map', default='../data/map/wean.dat')
     parser.add_argument('--path_to_log', default='../data/log/robotdata1.log')
     parser.add_argument('--output', default='../results')
-    parser.add_argument('--num_particles', default=500, type=int)
+    parser.add_argument('--num_particles', default=20000, type=int)
     parser.add_argument('--visualize', action='store_true')
     args = parser.parse_args()
 
@@ -156,28 +156,19 @@ if __name__ == '__main__':
             first_time_idx = False
             continue
 
-        X_bar_new = np.zeros((num_particles, 4), dtype=np.float64)
         u_t1 = odometry_robot
 
-        # Note: this formulation is intuitive but not vectorized; looping in python is SLOW.
-        # Vectorized version will receive a bonus. i.e., the functions take all particles as the input and process them in a vector.
-        
-        for m in range(0, num_particles):
-            """
-            MOTION MODEL
-            """
-            x_t0 = X_bar[m, 0:3]
-            x_t1 = motion_model.update(u_t0, u_t1, x_t0)
+        # MOTION MODEL: Update all particles at once
+        X_t0 = X_bar[:, 0:3]
+        X_t1 = motion_model.update(u_t0, u_t1, X_t0)
 
-            """
-            SENSOR MODEL
-            """
-            if (meas_type == "L"):
-                z_t = ranges
-                w_t = sensor_model.beam_range_finder_model(z_t, x_t1)
-                X_bar_new[m, :] = np.hstack((x_t1, w_t))
-            else:
-                X_bar_new[m, :] = np.hstack((x_t1, X_bar[m, 3]))
+        # SENSOR MODEL: Compute weights for all particles at once
+        if (meas_type == "L"):
+            z_t = ranges
+            w_t = sensor_model.beam_range_finder_model(z_t, X_t1)
+            X_bar_new = np.hstack((X_t1, w_t[:, np.newaxis]))
+        else:
+            X_bar_new = np.hstack((X_t1, X_bar[:, 3:4]))
 
         X_bar = X_bar_new
         u_t0 = u_t1

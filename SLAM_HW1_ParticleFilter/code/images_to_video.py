@@ -162,7 +162,7 @@ def main():
     parser.add_argument(
         '--output', '-o',
         type=str,
-        default='../log5',
+        default='../log1_kidnapped',
         help='Path for output video file (default: ../videos)'
     )
     parser.add_argument(

@@ -1,6 +1,11 @@
 # Results folder
 results/
 code_a/
+videos/
+instructions/
+
+#files
+data/directional_ray_table.npy
 
 # Python
 __pycache__/

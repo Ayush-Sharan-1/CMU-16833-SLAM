@@ -149,7 +149,7 @@ if __name__ == '__main__':
     """
     Initialize Parameters
     """
-    np.random.seed(45) 
+    np.random.seed(47) #45
     # np.random.seed(11203) 
     parser = argparse.ArgumentParser()
     parser.add_argument('--path_to_map', default='../data/map/wean.dat')
@@ -182,11 +182,12 @@ if __name__ == '__main__':
     adaptive_sampling_interval = 1
     adaptive_sampling_counter = 0
     min_steps_before_reduction = 100
-    w_fast_alpha = 0.9 
-    w_slow_alpha = 0.01
+    w_fast_alpha = 0.1 
+    w_slow_alpha = 0.001
     w_fast_average = 0.0
     w_slow_average = 0.0
     step_count = 0
+    w_t_log = np.zeros((num_particles, 1))
 
     if not os.path.exists('../data/directional_ray_table.npy'):
         sensor_model.precompute_directional_ray_table(save_path='../data/directional_ray_table.npy')
@@ -241,7 +242,7 @@ if __name__ == '__main__':
         # SENSOR MODEL: Compute weights for all particles at once
         if (meas_type == "L"):
             z_t = ranges
-            w_t = sensor_model.beam_range_finder_model(z_t, X_t1)
+            w_t, w_t_log = sensor_model.beam_range_finder_model(z_t, X_t1)
             X_bar_new = np.hstack((X_t1, w_t[:, np.newaxis]))
         else:
             X_bar_new = np.hstack((X_t1, X_bar[:, 3:4]))
@@ -253,10 +254,10 @@ if __name__ == '__main__':
         KIDNAPPED ROBOT
         """
 
-        w_avg = np.mean(X_bar[:, 3])
+        w_avg = np.mean(w_t_log)
         w_fast_average = w_fast_average + w_fast_alpha * (w_avg - w_fast_average)
         w_slow_average = w_slow_average + w_slow_alpha * (w_avg - w_slow_average)
-        if w_slow_average > 0 and w_fast_average/w_slow_average < 0.2:
+        if w_slow_average > 0 and w_fast_average/w_slow_average < 0.1:
             print("KIDNAPPED ROBOT")
             X_bar = init_particles_freespace(num_particles, occupancy_map)
             w_fast_average = 0.0
@@ -267,7 +268,7 @@ if __name__ == '__main__':
         """
         RESAMPLING
         """
-        X_bar[:, 3] = X_bar[:, 3] / np.sum(X_bar[:, 3]) + 1e-12
+        X_bar[:, 3] = X_bar[:, 3] / (np.sum(X_bar[:, 3]) + 1e-12)
         X_bar = resampler.low_variance_sampler(X_bar)
         
         """

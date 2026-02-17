@@ -75,6 +75,8 @@ class MotionModel:
         x_new = x + delta_trans_hat * np.cos(theta + delta_rot1_hat)
         y_new = y + delta_trans_hat * np.sin(theta + delta_rot1_hat)
         theta_new = theta + delta_rot1_hat + delta_rot2_hat
+        theta_new = (theta_new + np.pi) % (2*np.pi) - np.pi
+
 
         x_t1 = np.column_stack((x_new, y_new, theta_new))
         

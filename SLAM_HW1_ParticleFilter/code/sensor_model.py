@@ -313,13 +313,20 @@ class SensorModel:
                          1.0 / self._max_range, 0.0)
         
         # Combined likelihood
-        p = self._z_hit * p_hit + self._z_short * p_short + self._z_max * p_max + self._z_rand * p_rand
+        z_sum =self._z_hit + self._z_short + self._z_max + self._z_rand
+        z_hit = self._z_hit / z_sum
+        z_short = self._z_short / z_sum
+        z_max = self._z_max / z_sum
+        z_rand = self._z_rand / z_sum
+        p = z_hit * p_hit + z_short * p_short + z_max * p_max + z_rand * p_rand
         
         p = np.maximum(p, 1e-12)
         
-        prob_zt1 = np.exp(np.sum(np.log(p), axis=1))
+        prob_zt1_log =np.sum(np.log(p), axis=1)
+        prob_zt1 = np.exp(prob_zt1_log)
+
         
         # Prune particles in occupied cells
         prob_zt1[occupied_mask] = 0.0
         
-        return prob_zt1
+        return prob_zt1, prob_zt1_log

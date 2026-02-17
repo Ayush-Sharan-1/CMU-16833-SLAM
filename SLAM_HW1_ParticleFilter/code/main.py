@@ -35,13 +35,10 @@ def visualize_timestep(X_bar, tstep, output_path):
 
 
 def init_particles_random(num_particles, occupancy_map):
-
-    # initialize [x, y, theta] positions in world_frame for all particles
     y0_vals = np.random.uniform(0, 7000, (num_particles, 1))
     x0_vals = np.random.uniform(3000, 7000, (num_particles, 1))
     theta0_vals = np.random.uniform(-3.14, 3.14, (num_particles, 1))
 
-    # initialize weights for all particles
     w0_vals = np.ones((num_particles, 1), dtype=np.float64)
     w0_vals = w0_vals / num_particles
 
@@ -51,8 +48,6 @@ def init_particles_random(num_particles, occupancy_map):
 
 
 def init_particles_freespace(num_particles, occupancy_map):
-
-    # initialize [x, y, theta] positions in world_frame for all particles
     """
     TODO : Add your code here
     This version converges faster than init_particles_random
@@ -149,8 +144,7 @@ if __name__ == '__main__':
     """
     Initialize Parameters
     """
-    np.random.seed(47) #45
-    # np.random.seed(11203) 
+    np.random.seed(52)
     parser = argparse.ArgumentParser()
     parser.add_argument('--path_to_map', default='../data/map/wean.dat')
     parser.add_argument('--path_to_log', default='../data/log/robotdata6.log')
@@ -180,10 +174,11 @@ if __name__ == '__main__':
     initial_variance = None
     min_particles = 500
     adaptive_sampling_interval = 1
+    adaptive_sampling_interval = 1
     adaptive_sampling_counter = 0
-    min_steps_before_reduction = 100
-    w_fast_alpha = 0.1 
-    w_slow_alpha = 0.001
+    min_steps_before_reduction = 75
+    w_fast_alpha = 0.9 
+    w_slow_alpha = 0.01
     w_fast_average = 0.0
     w_slow_average = 0.0
     step_count = 0
@@ -203,6 +198,7 @@ if __name__ == '__main__':
 
     first_time_idx = True
     for time_idx, line in enumerate(logfile):
+
         step_count += 1
         # Read a single 'line' from the log file (can be either odometry or laser measurement)
         # L : laser scan measurement, O : odometry measurement
@@ -235,13 +231,14 @@ if __name__ == '__main__':
 
         u_t1 = odometry_robot
 
-        # MOTION MODEL: Update all particles at once
+        # MOTION MODEL
         X_t0 = X_bar[:, 0:3]
         X_t1 = motion_model.update(u_t0, u_t1, X_t0)
 
-        # SENSOR MODEL: Compute weights for all particles at once
+        # SENSOR MODEL
         if (meas_type == "L"):
             z_t = ranges
+            w_t, w_t_log = sensor_model.beam_range_finder_model(z_t, X_t1)
             w_t, w_t_log = sensor_model.beam_range_finder_model(z_t, X_t1)
             X_bar_new = np.hstack((X_t1, w_t[:, np.newaxis]))
         else:
@@ -253,11 +250,12 @@ if __name__ == '__main__':
         """
         KIDNAPPED ROBOT
         """
+        initial_variance = calculate_particle_variance(X_bar)
 
         w_avg = np.mean(w_t_log)
         w_fast_average = w_fast_average + w_fast_alpha * (w_avg - w_fast_average)
         w_slow_average = w_slow_average + w_slow_alpha * (w_avg - w_slow_average)
-        if w_slow_average > 0 and w_fast_average/w_slow_average < 0.1:
+        if w_slow_average > 0 and w_fast_average/w_slow_average < 0.2:
             print("KIDNAPPED ROBOT")
             X_bar = init_particles_freespace(num_particles, occupancy_map)
             w_fast_average = 0.0
@@ -269,28 +267,24 @@ if __name__ == '__main__':
         RESAMPLING
         """
         X_bar[:, 3] = X_bar[:, 3] / (np.sum(X_bar[:, 3]) + 1e-12)
+        X_bar[:, 3] = X_bar[:, 3] / (np.sum(X_bar[:, 3]) + 1e-12)
         X_bar = resampler.low_variance_sampler(X_bar)
         
         """
         ADAPTIVE SAMPLING
         """
         adaptive_sampling_counter += 1
-        if initial_variance is None:
-                initial_variance = calculate_particle_variance(X_bar)
-                print("Initial variance: {:.6f} with {} particles".format(initial_variance, X_bar.shape[0]))
-
         if adaptive_sampling_counter >= adaptive_sampling_interval and step_count >= min_steps_before_reduction:
             adaptive_sampling_counter = 0
     
             current_variance = calculate_particle_variance(X_bar)
             
-            # if initial_variance is None:
-            #     initial_variance = current_variance
-            #     print("Initial variance: {:.6f} with {} particles".format(initial_variance, X_bar.shape[0]))
-            
             if initial_variance > 0 and current_variance < initial_variance:
                 X_bar = adaptive_sampling(X_bar, current_variance, initial_variance, initial_num_particles, min_particles)
                 num_particles = X_bar.shape[0]
+                # if num_particles < initial_num_particles:
+                #     print("Adaptive sampling: Reduced to {} particles (variance: {:.6f})".format(
+                #         num_particles, current_variance))
                 # if num_particles < initial_num_particles:
                 #     print("Adaptive sampling: Reduced to {} particles (variance: {:.6f})".format(
                 #         num_particles, current_variance))

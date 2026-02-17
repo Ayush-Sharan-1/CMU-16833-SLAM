@@ -32,8 +32,8 @@ class SensorModel:
         # self._lambda_short = 0.005
 
         self._z_hit = 1000
-        self._z_short = 5  # default 0.01
-        self._z_max = 5  # default 0.03
+        self._z_short = 5 
+        self._z_max = 5 
         self._z_rand = 100000
 
         self._sigma_hit = 100
@@ -70,10 +70,8 @@ class SensorModel:
         x1_grid = int(x1 / self.map_resolution)
         y1_grid = int(y1 / self.map_resolution)
 
-        # Get map dimensions
         H, W = self.occupancy_map.shape
 
-        # Check if starting point is out of bounds
         if x0_grid < 0 or x0_grid >= W or y0_grid < 0 or y0_grid >= H:
             return self._max_range
 
@@ -112,9 +110,6 @@ class SensorModel:
         return self._max_range
 
     def precompute_directional_ray_table(self, save_path=None):
-        """
-        Precompute ray casting for each map cell and global direction.
-        """
 
         H, W = self.occupancy_map.shape
 
@@ -124,12 +119,11 @@ class SensorModel:
             dtype=np.float32
         )
 
-        print("Precomputing directional ray table...")
+        print("Precomputing ray casting table")
 
         for y in range(H):
             for x in range(W):
 
-                # skip occupied or unknown cells
                 if (self.occupancy_map[y, x] > self._min_probability) or (self.occupancy_map[y, x] < 0.0):
                     continue
 
@@ -148,27 +142,19 @@ class SensorModel:
             np.save(save_path, self.directional_ray_table)
 
     def get_predicted_range(self, x_laser, y_laser, theta_beam):
-        """
-        Lookup predicted beam range with interpolation.
-        """
 
         x_laser = np.asarray(x_laser)
         y_laser = np.asarray(y_laser)
         theta_beam = np.asarray(theta_beam)
 
-        # convert to grid
         x_grid = (x_laser / self.map_resolution).astype(int)
         y_grid = (y_laser / self.map_resolution).astype(int)
 
         H, W, _ = self.directional_ray_table.shape
 
-        # Check out of bounds
         out_of_bounds = (x_grid < 0) | (x_grid >= W) | (y_grid < 0) | (y_grid >= H)
-
-        # normalize angle
         theta = theta_beam % (2.0 * np.pi)
 
-        # convert to bin
         angle_float = theta / (2.0 * np.pi) * self.precompute_num_directions
 
         low = (np.floor(angle_float).astype(int) % self.precompute_num_directions)
@@ -176,75 +162,70 @@ class SensorModel:
 
         alpha = angle_float - np.floor(angle_float)
 
-        # Clamp indices to valid range for safe indexing
         x_grid_clamped = np.clip(x_grid, 0, W - 1)
         y_grid_clamped = np.clip(y_grid, 0, H - 1)
 
-        # interpolate using advanced indexing
         d_low = self.directional_ray_table[y_grid_clamped, x_grid_clamped, low]
         d_high = self.directional_ray_table[y_grid_clamped, x_grid_clamped, high]
 
         result = (1.0 - alpha) * d_low + alpha * d_high
         
-        # Set out of bounds to max_range
         result[out_of_bounds] = self._max_range
 
         return result
 
-    def compute_hit_eta(self, z_t_k_star, sigma_hit):
-        upper = (self._max_range - z_t_k_star)/sigma_hit
-        lower = (0 - z_t_k_star)/sigma_hit
+    # def compute_hit_eta(self, z_t_k_star, sigma_hit):
+    #     upper = (self._max_range - z_t_k_star)/sigma_hit
+    #     lower = (0 - z_t_k_star)/sigma_hit
 
-        denom = norm.cdf(upper) - norm.cdf(lower)
-        denom = max(denom, 1e-12)
-        eta = 1.0/denom
+    #     denom = norm.cdf(upper) - norm.cdf(lower)
+    #     denom = max(denom, 1e-12)
+    #     eta = 1.0/denom
 
-        return eta
+    #     return eta
     
-    def compute_hit_likelihood(self, z_t1, z_t_k_star, hit_inv_sigma, hit_gaussian_norm, sigma_hit  ):
-        diff = z_t1 - z_t_k_star
-        p_hit = hit_gaussian_norm * np.exp(-hit_inv_sigma * diff * diff)
-        eta = self.compute_hit_eta(z_t_k_star, sigma_hit)
-        return eta * p_hit
+    # def compute_hit_likelihood(self, z_t1, z_t_k_star, hit_inv_sigma, hit_gaussian_norm, sigma_hit  ):
+    #     diff = z_t1 - z_t_k_star
+    #     p_hit = hit_gaussian_norm * np.exp(-hit_inv_sigma * diff * diff)
+    #     eta = self.compute_hit_eta(z_t_k_star, sigma_hit)
+    #     return eta * p_hit
     
-    def compute_short_likelihood(self, z_t1, z_t_k_star, lambda_short):
+    # def compute_short_likelihood(self, z_t1, z_t_k_star, lambda_short):
 
-        denom = 1 - np.exp(-lambda_short * z_t_k_star)
-        denom = max(denom, 1e-12)
-        eta = 1.0/denom
+    #     denom = 1 - np.exp(-lambda_short * z_t_k_star)
+    #     denom = max(denom, 1e-12)
+    #     eta = 1.0/denom
         
-        if(z_t1 >= 0 and z_t1 <= z_t_k_star):
-            # p_short = eta * self._lambda_short * np.exp(-self._lambda_short * z_t1)
-            p_short = eta * lambda_short * np.exp(-lambda_short * z_t1)
-        else:
-            p_short = 0
+    #     if(z_t1 >= 0 and z_t1 <= z_t_k_star):
+    #         # p_short = eta * self._lambda_short * np.exp(-self._lambda_short * z_t1)
+    #         p_short = eta * lambda_short * np.exp(-lambda_short * z_t1)
+    #     else:
+    #         p_short = 0
 
-        return p_short
+    #     return p_short
     
-    def compute_max_likelihood(self, z_t1):
-        if (z_t1 == self._max_range):
-            p_max = 1
-        else:
-            p_max = 0
+    # def compute_max_likelihood(self, z_t1):
+    #     if (z_t1 == self._max_range):
+    #         p_max = 1
+    #     else:
+    #         p_max = 0
 
-        return p_max
+    #     return p_max
 
-    def compute_rand_likelihood(self, z_t1):
+    # def compute_rand_likelihood(self, z_t1):
         
-        if(z_t1 >= 0 and z_t1 < self._max_range):
-            p_rand = 1.0/self._max_range
-        else:
-            p_rand = 0
+    #     if(z_t1 >= 0 and z_t1 < self._max_range):
+    #         p_rand = 1.0/self._max_range
+    #     else:
+    #         p_rand = 0
 
-        return p_rand
+    #     return p_rand
 
     def beam_range_finder_model(self, z_t1_arr, x_t1):
         """
         param[in] z_t1_arr : laser range readings [array of 180 values] at time t
         param[in] x_t1 : particle state belief [x, y, theta] at time t [world_frame]
-                          All particles [num_particles, 3]
         param[out] prob_zt1 : likelihood of a range scan zt1 at time t
-                          All particles [num_particles]
         """
         """
         TODO : Add your code here
@@ -277,11 +258,7 @@ class SensorModel:
         x_laser_expanded = np.repeat(x_laser[:, np.newaxis], num_beams, axis=1)
         y_laser_expanded = np.repeat(y_laser[:, np.newaxis], num_beams, axis=1) 
 
-        z_t_k_star = self.get_predicted_range(
-            x_laser_expanded.flatten(),
-            y_laser_expanded.flatten(),
-            theta_beams.flatten()
-        ).reshape(num_particles, num_beams)
+        z_t_k_star = self.get_predicted_range(x_laser_expanded.flatten(), y_laser_expanded.flatten(), theta_beams.flatten()).reshape(num_particles, num_beams)
         
         z_t1_values_expanded = np.tile(z_t1_values[np.newaxis, :], (num_particles, 1))
         
@@ -322,11 +299,12 @@ class SensorModel:
         
         p = np.maximum(p, 1e-12)
         
-        prob_zt1_log =np.sum(np.log(p), axis=1)
+        prob_zt1_log = np.sum(np.log(p), axis=1)
         prob_zt1 = np.exp(prob_zt1_log)
 
         
         # Prune particles in occupied cells
         prob_zt1[occupied_mask] = 0.0
         
+        return prob_zt1, prob_zt1_log
         return prob_zt1, prob_zt1_log

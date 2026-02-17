@@ -73,6 +73,69 @@ def init_particles_freespace(num_particles, occupancy_map):
     return X_bar_init
 
 
+def calculate_particle_variance(X_bar):
+
+    x_vals = X_bar[:, 0]
+    y_vals = X_bar[:, 1]
+    theta_vals = X_bar[:, 2]
+    
+    var_x = np.var(x_vals)
+    var_y = np.var(y_vals)
+    
+    cos_theta = np.cos(theta_vals)
+    sin_theta = np.sin(theta_vals)
+    mean_cos = np.mean(cos_theta)
+    mean_sin = np.mean(sin_theta)
+    mean_angle = np.arctan2(mean_sin, mean_cos)
+    
+    R = np.sqrt(mean_cos**2 + mean_sin**2)
+    var_theta = 1.0 - R
+
+    scale_x = np.ptp(x_vals) if np.ptp(x_vals) > 0 else 1.0
+    scale_y = np.ptp(y_vals) if np.ptp(y_vals) > 0 else 1.0
+    scale_theta = 2.0 * np.pi
+    
+    norm_var_x = var_x / (scale_x**2) if scale_x > 0 else 0.0
+    norm_var_y = var_y / (scale_y**2) if scale_y > 0 else 0.0
+    norm_var_theta = var_theta
+    
+    total_variance = norm_var_x + norm_var_y + norm_var_theta
+    
+    return total_variance
+
+
+def adaptive_sampling(X_bar, current_variance, initial_variance, initial_particles, min_particles=500):
+    """
+    Adaptively reduce the number of particles based on variance decrease.
+    Removes particles with lowest weights.
+    """
+    num_particles = X_bar.shape[0]
+    
+    # Calculate reduction factor based on variance ratio
+    if initial_variance > 0:
+        reduction_factor = current_variance / initial_variance
+    else:
+        reduction_factor = 1.0
+    
+    target_particles = max(min_particles, int(initial_particles * reduction_factor))
+    
+    if target_particles >= num_particles:
+        return X_bar
+    
+    sorted_indices = np.argsort(X_bar[:, 3])
+    
+    keep_indices = sorted_indices[-target_particles:]
+    X_bar_reduced = X_bar[keep_indices]
+    
+    weight_sum = np.sum(X_bar_reduced[:, 3])
+    if weight_sum > 0:
+        X_bar_reduced[:, 3] = X_bar_reduced[:, 3] / weight_sum
+    else:
+        X_bar_reduced[:, 3] = 1.0 / target_particles
+    
+    return X_bar_reduced
+
+
 if __name__ == '__main__':
     """
     Description of variables used
@@ -86,11 +149,11 @@ if __name__ == '__main__':
     """
     Initialize Parameters
     """
-
+    np.random.seed(45) 
     # np.random.seed(11203) 
     parser = argparse.ArgumentParser()
     parser.add_argument('--path_to_map', default='../data/map/wean.dat')
-    parser.add_argument('--path_to_log', default='../data/log/robotdata1.log')
+    parser.add_argument('--path_to_log', default='../data/log/robotdata5.log')
     parser.add_argument('--output', default='../results')
     parser.add_argument('--num_particles', default=20000, type=int)
     parser.add_argument('--visualize', action='store_true')
@@ -109,8 +172,16 @@ if __name__ == '__main__':
     resampler = Resampling()
 
     num_particles = args.num_particles
+    initial_num_particles = num_particles
     # X_bar = init_particles_random(num_particles, occupancy_map)
     X_bar = init_particles_freespace(num_particles, occupancy_map)
+    
+    # Variables for adaptive sampling
+    initial_variance = None
+    min_particles = 500
+    adaptive_sampling_interval = 10
+    adaptive_sampling_counter = 0
+    min_steps_before_reduction = 150 
 
     if not os.path.exists('../data/directional_ray_table.npy'):
         sensor_model.precompute_directional_ray_table(save_path='../data/directional_ray_table.npy')
@@ -178,6 +249,26 @@ if __name__ == '__main__':
         """
         X_bar[:, 3] = X_bar[:, 3] / np.sum(X_bar[:, 3]) + 1e-12
         X_bar = resampler.low_variance_sampler(X_bar)
+        
+        """
+        ADAPTIVE SAMPLING
+        """
+        adaptive_sampling_counter += 1
+        if adaptive_sampling_counter >= adaptive_sampling_interval and time_idx >= min_steps_before_reduction:
+            adaptive_sampling_counter = 0
+    
+            current_variance = calculate_particle_variance(X_bar)
+            
+            if initial_variance is None:
+                initial_variance = current_variance
+                print("Initial variance: {:.6f} with {} particles".format(initial_variance, X_bar.shape[0]))
+            
+            if initial_variance > 0 and current_variance < initial_variance:
+                X_bar = adaptive_sampling(X_bar, current_variance, initial_variance, initial_num_particles, min_particles)
+                num_particles = X_bar.shape[0]
+                if num_particles < initial_num_particles:
+                    print("Adaptive sampling: Reduced to {} particles (variance: {:.6f})".format(
+                        num_particles, current_variance))
 
         if args.visualize:
             visualize_timestep(X_bar, time_idx, args.output)

@@ -36,7 +36,7 @@ class SensorModel:
         self._z_max = 5  # default 0.03
         self._z_rand = 100000
 
-        self._sigma_hit = 200
+        self._sigma_hit = 100
         self._lambda_short = 0.01
 
         # Used in p_max and p_rand, optionally in ray casting

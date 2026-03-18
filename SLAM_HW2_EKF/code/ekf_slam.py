@@ -106,7 +106,31 @@ def init_landmarks(init_measure, init_measure_cov, init_pose, init_pose_cov):
     k = init_measure.shape[0] // 2
 
     landmark = np.zeros((2 * k, 1))
+    
     landmark_cov = np.zeros((2 * k, 2 * k))
+
+    x = init_pose[0, 0]
+    y = init_pose[1, 0]
+    theta = init_pose[2, 0]
+
+    for i in range(k):
+        beta = init_measure[2*i, 0]
+        r = init_measure[2*i + 1, 0]
+
+        angle = theta + beta
+
+        landmark[2*i] = x + r * np.cos(angle)
+        landmark[2*i + 1] = y + r * np.sin(angle)
+
+        J_p = np.array([[1, 0, -r * np.sin(angle)],
+                        [0, 1, r * np.cos(angle)]])
+        
+        J_m = np.array([[-r * np.sin(angle), np.cos(angle)],
+                        [r * np.cos(angle), np.sin(angle)]])
+        
+        cov = J_p @ init_pose_cov @ J_p.T + J_m @ init_measure_cov @ J_m.T
+
+        landmark_cov[2*i:2*i+2, 2*i:2*i+2] = cov
 
     return k, landmark, landmark_cov
 
@@ -124,7 +148,34 @@ def predict(X, P, control, control_cov, k):
     \return P_pre Predicted P covariance of shape (3 + 2k, 3 + 2k).
     '''
 
-    return X, P
+    X_pre = X.copy()
+    P_pre = P.copy()
+
+    d = control[0, 0]
+    theta = X[2, 0]
+
+    X_pre[0] += d * np.cos(theta)
+    X_pre[1] += d * np.sin(theta)
+    X_pre[2] += control[1, 0]
+    X_pre[2] = warp2pi(X_pre[2])
+
+    F_t = np.array([[1, 0, -d * np.sin(theta)],
+                    [0, 1, d * np.cos(theta)], 
+                    [0, 0, 1]])
+    
+    G_t = np.array([[np.cos(theta), -np.sin(theta), 0],
+                    [np.sin(theta), np.cos(theta), 0],
+                    [0, 0, 1]])
+    
+    F = np.eye(3 + 2 * k)
+    F[0:3, 0:3] = F_t
+
+    G = np.zeros((3 + 2 * k, 3))
+    G[0:3, 0:3] = G_t
+
+    P_pre = F @ P @ F.T + G @ control_cov @ G.T
+
+    return X_pre, P_pre
 
 
 def update(X_pre, P_pre, measure, measure_cov, k):
@@ -140,7 +191,52 @@ def update(X_pre, P_pre, measure, measure_cov, k):
     \return P Updated P covariance of shape (3 + 2k, 3 + 2k).
     '''
 
-    return X_pre, P_pre
+    n = 3 + 2 * k
+
+    robot_x = X_pre[0, 0]
+    robot_y = X_pre[1, 0]
+    theta = X_pre[2, 0]
+
+    z_hat = np.zeros((2 * k, 1))
+    H = np.zeros((2 * k, n))
+
+    for i in range(k):
+        lm_x = X_pre[3 +2*i, 0]
+        lm_y = X_pre[4 + 2*i, 0]
+
+        dx = lm_x -robot_x
+        dy = lm_y - robot_y
+        dist_sq =dx**2 + dy**2
+        dist = np.sqrt(dist_sq)
+
+        z_hat[2*i, 0] = np.arctan2(dy, dx) - theta
+        z_hat[2*i+1, 0] = dist
+
+        H[2*i, 0] =  dy /dist_sq
+        H[2*i, 1] = -dx / dist_sq
+        H[2*i, 2] = -1
+        H[2*i+1, 0] = -dx/ dist
+        H[2*i+1, 1] = -dy / dist
+        H[2*i+1, 2] = 0
+
+        H[2*i, 3 + 2*i] = -dy / dist_sq
+        H[2*i, 4 + 2*i] =  dx /dist_sq
+        H[2*i+1, 3 + 2*i] =  dx /dist
+        H[2*i+1, 4 + 2*i] =  dy / dist
+
+    R  = np.kron(np.eye(k), measure_cov)
+
+    nu = measure - z_hat
+    nu[0::2, 0] = warp2pi(nu[0::2, 0])
+
+    S = H @ P_pre @ H.T + R
+    K = P_pre @ H.T @ np.linalg.inv(S)
+
+    X = X_pre + K @ nu
+    X[2, 0] = warp2pi(X[2, 0])
+    P = (np.eye(n) - K @ H) @ P_pre
+
+    return X, P
 
 
 def evaluate(X, P, k):
@@ -158,14 +254,26 @@ def evaluate(X, P, k):
     plt.draw()
     plt.waitforbuttonpress(0)
 
+    for i in range(k):
+        l_est = X[3 + 2*i:3 + 2*i + 2, 0]
+        l_gt  = l_true[2*i:2*i + 2]
+        diff  = l_est - l_gt
 
-def main():
+        euclid = np.linalg.norm(diff)
+
+        cov_i = P[3 + 2*i:3 + 2*i + 2, 3 + 2*i:3 + 2*i + 2]
+        mahal = np.sqrt(diff @ np.linalg.inv(cov_i) @ diff)
+
+        print(f'Landmark {i+1}: Euclidean = {euclid:.4f}, Mahalanobis = {mahal:.4f}')
+
+
+def main(sig_x=0.25, sig_y=0.1, sig_alpha=0.1, sig_beta=0.01, sig_r=0.08):
     # TEST: Setup uncertainty parameters
-    sig_x = 0.25
-    sig_y = 0.1
-    sig_alpha = 0.1
-    sig_beta = 0.01
-    sig_r = 0.08
+    # sig_x = 0.25
+    # sig_y = 0.1
+    # sig_alpha = 0.1
+    # sig_beta = 0.01
+    # sig_r = 0.08
 
 
     # Generate variance from standard deviation
@@ -238,6 +346,9 @@ def main():
 
     # EVAL: Plot ground truth landmarks and analyze distances
     evaluate(X, P, k)
+
+    print(np.array2string(P, precision=3, suppress_small=True, max_line_width=120))
+
 
 
 if __name__ == "__main__":
